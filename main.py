@@ -19,7 +19,7 @@ import logging
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s' # %(name)s removed to simplify log output
 )
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,12 @@ class Config:
         "Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv",
         "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
         "RecipeNotebookList.csv", "Recipe.csv", "RecipeLevelTable.csv",
-        "RecipeLookup.csv", "RecipeNotebookList.csv", "RecipeSubCategory.csv"
+        "RecipeLookup.csv", "RecipeNotebookList.csv", "RecipeSubCategory.csv",
+        "GilShop.csv", "GilShopInfo.csv", "GilShopItem.csv"
     ]
     DB_NAME = "ffxiv_price.duckdb"
     GH_KEY = os.environ.get("GITHUB_API_KEY")
-    OFFLINE_MODE = False  # Set to False to enable online mode; mainly for testing
+    OFFLINE_MODE = True  # Set to False to enable online mode; mainly for testing
     REQUEST_TIMEOUT = 30  # seconds
     MAX_RETRIES = 3
 
@@ -149,10 +150,11 @@ def update_csv(files: List[str]) -> List[str]:
             logger.info(f"Updating {file} from GitHub...")
             if save_csv(file):
                 updated_tables.append(file)
+                logger.info(f"Updated {file}")
             else:
                 logger.error(f"Failed to save {file}")
         else:
-            logger.debug(f"Local {file} is up to date")
+            logger.info(f"Local {file} is up to date")
 
     logger.info(f"{len(files) - len(updated_tables)} of {len(files)} files current")
     logger.info(f"{len(updated_tables)} of {len(files)} files updated")
@@ -161,7 +163,7 @@ def update_csv(files: List[str]) -> List[str]:
     
     return updated_tables
 
-def process_database_updates(updated_files: List[str]) -> None:
+def db_update(updated_files: List[str]) -> None:
     """Process database updates for the updated files.
     
     Args:
@@ -182,21 +184,29 @@ def process_database_updates(updated_files: List[str]) -> None:
                 skip_rows=1, 
                 skip_rows_after_header=1
             )
-            
-            db.execute(fr"CREATE OR REPLACE TABLE {filename} AS SELECT * FROM df")
+            df = df.select(pl.all().name.map(lambda col_name: col_name.replace('{', '_').replace('[', '_').replace('}', '').replace(']', '')))
+
+            db.execute(fr"CREATE SCHEMA IF NOT EXISTS imported")
+            db.execute(fr"CREATE OR REPLACE TABLE imported.{filename} AS SELECT * FROM df")
             logger.info(f"Successfully updated {filename} table in database")
+    
+        with open("create_recipe_price.sql", "r") as f:
+           query = f.read()
+           df = db.sql(query).pl()
+           db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
+           logger.info("Created main.recipe_price table")
 
 
 if __name__ == "__main__":
     try:
         if Config.OFFLINE_MODE:
             logger.info("Running in offline mode; skipping CSV updates")
-            updated = [Config.FILES[0]]  # for testing
+            updated = [Config.FILES]
         else:
             updated = update_csv(Config.FILES)
-
         if updated:
-            process_database_updates(updated)
+            for file in updated:
+                db_update(file)
         
     except Exception as e:
         logger.error(f"Error in main execution: {e}", exc_info=True)
