@@ -1,5 +1,6 @@
 """
 TODO
+- add velocities
 - Handle multiple servers
 - Host online
 """
@@ -135,7 +136,7 @@ def join_dfs(lookup_items_df: pl.DataFrame, prices_df: pl.DataFrame) -> pl.DataF
     return combined_df
 
 
-def print_result(df: pl.DataFrame):
+def print_result(df: pl.DataFrame)->int:
     ### Create grid for item
     result_grid = {}
     for x in range(2):
@@ -146,12 +147,12 @@ def print_result(df: pl.DataFrame):
             result_grid[coord] = tile
 
     row = 0
-    result_grid[(row, 0)].markdown("##### Item")
-    result_grid[(row, 1)].markdown("##### ID:")
-    result_grid[(row, 2)].markdown("##### Number per craft:")
-    result_grid[(row, 3)].markdown("##### Shop price:")
-    result_grid[(row, 4)].markdown("##### NQ Price:")
-    result_grid[(row, 5)].markdown("##### HQ Price:")
+    result_grid[(row, 0)].markdown("**Item**")
+    result_grid[(row, 1)].markdown("**ID**")
+    result_grid[(row, 2)].markdown("**Number per craft**")
+    result_grid[(row, 3)].markdown("**Shop price**",help="Number in parentheses is single item cost")
+    result_grid[(row, 4)].markdown("**NQ Price**",help="Number in parentheses is single item cost")
+    result_grid[(row, 5)].markdown("**HQ Price**",help="Number in parentheses is single item cost")
 
     df_dict = df.to_dicts()
     # df_dict
@@ -176,15 +177,28 @@ def print_result(df: pl.DataFrame):
                             st.write(":red[No NQ]")
                         else:
                             st.write(f"{v:,}")
+                            st.write(f"Velocity: {item["nq_velocity"]:,}/day")
                 with result_grid[(row, 5)]:
                     if k.lower() == "hq_price":
                         if v is None:
                             st.write(":red[No HQ]")
                         else:
                             st.write(f"{v:,}")
+                            st.write(f"Velocity: {item["hq_velocity"]:,}/day")
+    try:
+        hq_velocity = df[0]["hq_velocity"][0]
+    except:
+        hq_velocity = 0
+    try:
+        nq_velocity = df[0]["nq_velocity"][0]
+    except:
+        nq_velocity = 0
+
+    total_velocity = hq_velocity + nq_velocity
+    return total_velocity
 
 
-def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_each: int) -> float:
+def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_total: int) -> float:
     st.markdown("## Craft Details")
 
     prices = (
@@ -203,6 +217,7 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_each: int) -> float
     )
 
     amount = df["amount"][0]
+    craft_cost_each = int(craft_cost_total / amount)
     hq_price_each = df["hq_price"][0]
     hq_price_total = hq_price_each * amount
     pl_each = hq_price_each - craft_cost_each
@@ -210,7 +225,34 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_each: int) -> float
     pl_total_formatted = f"{pl_total:,}"
     pl_perc = pl_each / hq_price_each
     pl_perc_formatted = f"{pl_perc:,.2%}"
-    with metric_col5:
+
+    with metric_col1:
+        with st.container(border=True):
+            if df["amount"][0] == 1:
+                st.metric(f"Craft Cost", f"{craft_cost_each:,}")
+            if df["amount"][0] > 1:
+                st.metric(
+                    f"Craft Cost",
+                    f"{craft_cost_total:,} ({craft_cost_each:,})",
+                    help="Number in parentheses is single item cost"
+                )
+    with metric_col2:
+        with st.container(border=True):
+            if df["amount"][0] == 1:
+                st.metric(
+                    f"Profit/Loss",
+                    f"{pl_each:,}",
+                    pl_perc_formatted,
+                    help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
+                )
+            if df["amount"][0] > 1:
+                st.metric(
+                    f"Profit/Loss",
+                    f"{pl_total:,} ({pl_each:,})",
+                    pl_perc_formatted,
+                    help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
+                )
+    with metric_col4:
         with st.container(border=True):
             if df["amount"][0] == 1:
                 st.metric(
@@ -220,46 +262,51 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_each: int) -> float
             elif df["amount"][0] > 1:
                 st.metric(
                     f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
-                    f"{result_min_price * amount:,} ({result_min_price:,} each)",
+                    f"{result_min_price * amount:,} ({result_min_price:,})",
+                    help="Number in parentheses is single item cost",
                 )
-    with metric_col6:
+    with metric_col5:
         with st.container(border=True):
             if df["hq_price"] is not None:
                 if df["amount"][0] == 1:
                     st.metric(f"HQ Price", f"{hq_price_each:,}")
                 if df["amount"][0] > 1:
                     st.metric(
-                        f"HQ Price", f"{hq_price_total:,} ({hq_price_each:,} each)"
+                        f"HQ Price",
+                        f"{hq_price_total:,} ({hq_price_each:,})",
+                        help="Number in parentheses is single item cost",
                     )
-    with metric_col1:
-        with st.container(border=True):
-            if df["amount"][0] == 1:
-                st.metric(f"Craft Cost", f"{craft_cost_each:,}", pl_total_formatted)
-            if df["amount"][0] > 1:
-                st.metric(
-                    f"Craft Cost",
-                    f"{craft_cost_each * amount:,} ({craft_cost_each:,} each)",
-                    pl_total_formatted,
-                )
-    with metric_col2:
-        with st.container(border=True):
-            st.metric(f"Profit/Loss %", pl_perc_formatted)
 
     return pl_perc
 
 
-def print_warning(pl_perc: float) -> None:
+def print_warning(pl_perc: float, velocity: int) -> None:
     if pl_perc < 0:
-        st.error("Buying ingredients and crafting this item will result in a loss!")
+        st.error(
+            f"Buying ingredients and crafting this item will result in a loss: {pl_perc:,.2%}",
+            icon="🔥"
+        )
     elif pl_perc < 0.2:
-        st.warning("Note: Low profit margin (below 20%)!")
+        st.warning(f"Low profit margin (below 25%): {pl_perc:,.2%}", icon="🚨")
+    else:
+        st.success(f"Profit above 25%: {pl_perc:,.2%}", icon="🥳")
 
+    if velocity < 15:
+        st.error(
+            f"Item won't sell: {velocity:,}/day",
+            icon="🔥"
+        )
+    elif velocity < 99:
+        st.warning(f"Item will sell really slowly: {velocity:,}/day", icon="🚨")
+    else:
+        st.success(f"Item will sell: {velocity:,}/day", icon="🥳")
 
 @st.fragment
 def print_ingredients(df: pl.DataFrame) -> int:
-    st.markdown("#")
+    st.markdown("")
     st.markdown("# Ingredients")
-
+    st.text("All items are set to NQ by default, but can be adjusted. The cost will update dynamically as item amounts are changed.\nEach column is set to max out at the number needed, but it is possible to increase numbers over this limit when using multiple columns; to avoid this, users should lower NQ after increasing HQ and vice versa.")
+    st.markdown("")
     ### Create grid for items
     ingr_grid = {}
     for x in range(len(df)):
@@ -270,19 +317,19 @@ def print_ingredients(df: pl.DataFrame) -> int:
             ingr_grid[coord] = tile
 
     row = 0
-    ingr_grid[(row, 0)].markdown("##### Ingredient")
-    ingr_grid[(row, 1)].markdown("##### ID")
-    ingr_grid[(row, 2)].markdown("##### Number Needed")
-    ingr_grid[(row, 3)].markdown("##### Shop price")
-    ingr_grid[(row, 4)].button("**NQ**", help="Click to set all to NQ", type="tertiary")
-    ingr_grid[(row, 5)].button("**HQ**", help="Click to set all to HQ", type="tertiary")
-    ingr_grid[(row, 6)].markdown("##### Cost")
+    ingr_grid[(row, 0)].markdown("**Ingredient**")
+    ingr_grid[(row, 1)].markdown("**ID**")
+    ingr_grid[(row, 2)].markdown("**Number Needed**")
+    ingr_grid[(row, 3)].markdown("**Shop price**",help="Number in parentheses is single item cost")
+    ingr_grid[(row, 4)].button("**NQ**", help="Click to set all to NQ; Number in parentheses is single item cost", type="tertiary")
+    ingr_grid[(row, 5)].button("**HQ**", help="Click to set all to HQ; Number in parentheses is single item cost", type="tertiary")
+    ingr_grid[(row, 6)].markdown("**Cost**")
 
-    craft_cost_each = 0
-    row_cost = 0
+    craft_cost_total = 0
     df_dict = df.to_dicts()
     # df_dict
     for row, item in enumerate(df_dict, start=0):
+        row_cost = 0
         if item["ingredient_of"] == None:
             continue
         else:
@@ -292,13 +339,12 @@ def print_ingredients(df: pl.DataFrame) -> int:
                 if k.lower() == "id":
                     ingr_grid[(row, 1)].write(v)
                 if k.lower() == "amount":
-                    ingr_grid[(row, 2)].write(v)
+                    ingr_grid[(row, 2)].write(f"{v}")
                 with ingr_grid[(row, 3)]:
                     if k.lower() == "shop_price":
                         if v is None:
                             st.write(":red[No Shop]")
                         else:
-                            st.write(f"{v}")
                             shop_qty = st.number_input(
                                 "num_shop",
                                 min_value=0,
@@ -307,14 +353,13 @@ def print_ingredients(df: pl.DataFrame) -> int:
                                 label_visibility="hidden",
                             )
                             shop_total = item["shop_price"] * shop_qty
-                            st.write(f"{shop_total}")
+                            st.write(f"{shop_total:,} ({v:,})")
                             row_cost += shop_total
                 with ingr_grid[(row, 4)]:
                     if k.lower() == "nq_price":
                         if v is None:
                             st.write(":red[No NQ]")
                         else:
-                            st.write(f"{v}")
                             nq_qty = st.number_input(
                                 "num_nq",
                                 min_value=0,
@@ -324,14 +369,14 @@ def print_ingredients(df: pl.DataFrame) -> int:
                                 label_visibility="hidden",
                             )
                             nq_total = item["nq_price"] * nq_qty
-                            st.write(f"{nq_total}")
+                            st.write(f"{nq_total:,} ({v:,})")
+                            st.write(f"Velocity: {item["nq_velocity"]:,}/day")
                             row_cost += nq_total
                 with ingr_grid[(row, 5)]:
                     if k.lower() == "hq_price":
                         if v is None:
                             st.write(":red[No HQ]")
                         else:
-                            st.write(f"{v}")
                             hq_qty = st.number_input(
                                 "num_hq",
                                 min_value=0,
@@ -340,26 +385,22 @@ def print_ingredients(df: pl.DataFrame) -> int:
                                 label_visibility="hidden",
                             )
                             hq_total = item["hq_price"] * hq_qty
-                            st.write(f"{hq_total}")
+                            st.write(f"{hq_total:,} ({v:,})")
+                            st.write(f"Velocity: {item["nq_velocity"]:,}/day")
                             row_cost += hq_total
-            ingr_grid[(row, 6)].write(f"{row_cost}")
-        craft_cost_each += row_cost
+            ingr_grid[(row, 6)].write(f"{row_cost:,}")
+        craft_cost_total += row_cost
 
     item = df_dict[0]
-    craft_cost_total = item["amount"] * craft_cost_each
+    craft_cost_each = int(craft_cost_total / item["amount"])
 
-    st.write(f"#### Total ingredient cost (each): :red[{craft_cost_each} gil]")
     if item["amount"] > 1:
         st.write(
             f"#### Total ingredient cost per craftable amount ({item['amount']}): :red[{craft_cost_total}]"
         )
+    st.write(f"#### Total ingredient cost (each): :red[{craft_cost_each} gil]")
 
-    return craft_cost_each
-
-  
-
-
-###TODO add velocities
+    return craft_cost_total
 
 
 if __name__ == "__main__":
@@ -368,22 +409,25 @@ if __name__ == "__main__":
     recipe_list = get_all_recipes()  ### List of recipes for all craftable items in game
     selectbox_recipe_list = recipe_list.select(["result_text", "result_id"])
 
-    st.title("FFXIV Crafting Profit/Loss Checker")
+    ### TODO Implement Region
+    # with st.container(horizontal_alignment="right"):
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.title("FFXIV Crafting Profit/Loss Checker")
     st.markdown("")
+    with col2:
+        with st.container(horizontal_alignment="right"):
+            region_selectbox = st.selectbox("Select region", "Japan", width=120)
+
     st.text(
-        """Select recipe to check if better value to craft from ingredients or buy from marketboard.\nNumber in parentheses is item id."""
+        "Select recipe to check if better value to craft from ingredients or buy from marketboard.\nNumber in parentheses is item id."
     )
     item_selectbox = st.selectbox(
-        "label", options=selectbox_recipe_list, index=0, label_visibility="hidden"
+        "label", options=selectbox_recipe_list, index=None, label_visibility="hidden"
     )
-    ###TODO Change index back to None
-
-    if not st.session_state:
-        st.session_state["loading"] = False
 
     if item_selectbox:
-        st.session_state.loading = True
-
         item_id = selectbox_recipe_list.filter(
             pl.col("result_text") == item_selectbox
         ).select("result_id")
@@ -402,14 +446,15 @@ if __name__ == "__main__":
         # combined_df
 
         with cont_ingr:
-            craft_cost_each = print_ingredients(combined_df)
+            craft_cost_total = print_ingredients(combined_df)
 
         with cont_result:
-            print_result(combined_df)
+            velocity = print_result(combined_df)
         with cont_analysis:
-            pl_perc = print_metrics(item_id, combined_df, craft_cost_each)
+            pl_perc = print_metrics(item_id, combined_df, craft_cost_total)
         with cont_warning:
-            print_warning(pl_perc)
+            print_warning(pl_perc, velocity)
+        
 
 
 ### TODO number_input dependencies
