@@ -6,6 +6,8 @@ Make recursive for subcrafts
 
 from typing import List, Optional, Dict, Union
 import requests
+from statistics import median
+
 import polars as pl
 import duckdb
 
@@ -127,8 +129,9 @@ def fetch_universalis(item_id: int, region: str = "Japan") -> Optional[dict]:
             if 'id' in v:
                 item_ids.append(str(v['id']))
 
+        ### Change logic to top 100 nq and top 100
         url = f"https://universalis.app/api/v2/{region}/{','.join(item_ids)}"
-        parameters = {"listings": 100,
+        parameters = {"listings": 200,
                       "fields": "items.listings.pricePerUnit,items.listings.onMannequin,items.listings.hq,items.nqSaleVelocity,items.hqSaleVelocity"}
 
         logger.info(f"Fetching market data from: {url}")
