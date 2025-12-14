@@ -15,7 +15,7 @@ import polars as pl
 import streamlit as st
 
 
-import config
+config.DB_NAME = "ffxiv_price.duckdb"
 
 
 @st.cache_data
