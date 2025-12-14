@@ -355,7 +355,7 @@ def print_ingredients(df: pl.DataFrame) -> int:
                             # st.markdown(f"[{v}](/?id={v})")
                             id_button = st.button(v, type="secondary")
                             if id_button:
-                                st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(str(v)))[0,0]
+                                st.session_state.default_item_index = selectbox_recipe_list.select(pl.col("result_id").index_of(int(v)))[0,0]
                                 st.rerun()
                         else:
                             st.write(v)
