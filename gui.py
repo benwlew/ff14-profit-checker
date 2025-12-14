@@ -13,7 +13,6 @@ import duckdb
 import requests
 import polars as pl
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 
 
 import config
@@ -236,8 +235,7 @@ def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_total: int) -> floa
             if df["amount"][0] > 1:
                 st.metric(
                     f"Craft Cost",
-                    f"{craft_cost_total:,} ({craft_cost_each:,})",
-                    help="Number in parentheses is single item cost",
+                    f"{craft_cost_total:,} ({craft_cost_each:,})"
                 )
     with metric_col2:
         with st.container(border=True):
@@ -326,7 +324,7 @@ def print_ingredients(df: pl.DataFrame) -> int:
     ingr_grid[(row, 1)].markdown("**ID**", help="Click link to lookup item profit/loss of subcraft (opens in new tab)")
     ingr_grid[(row, 2)].markdown("**Required**")
     ingr_grid[(row, 3)].markdown(
-        "**Shop price**", help="Number in parentheses is single item cost"
+        "**Shop price**"
     )
     ### TODO Buttons to set all don't work yet
     ingr_grid[(row, 4)].button(
@@ -336,7 +334,7 @@ def print_ingredients(df: pl.DataFrame) -> int:
     )
     ingr_grid[(row, 5)].button(
         "**HQ**",
-        help="Click to set all to HQ; Number in parentheses is single item cost",
+        help="Click to set all to HQ",
         type="tertiary",
     )
     ingr_grid[(row, 6)].markdown("**Cost**")
