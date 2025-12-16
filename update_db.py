@@ -47,7 +47,7 @@ def git_last_updated(file: str) -> Optional[datetime]:
         Optional[datetime]: The last commit time in UTC, or None if request fails
     """
     url = f"https://api.github.com/repos/xivapi/ffxiv-datamining/commits?path=csv/{file}"
-    headers = {"Authorization": f"Bearer {config.GH_KEY}"}
+    headers = {"Authorization": f"Bearer {config.GH_TOKEN}"}
     
     try:
         response = requests.get(url, headers=headers)
@@ -68,7 +68,7 @@ def save_csv(file: str) -> bool:
         bool: True if successful, False otherwise
     """
     url = f"https://github.com/xivapi/ffxiv-datamining/blob/master/csv/{file}?raw=true"
-    headers = {"Authorization": f"Bearer {config.GH_KEY}"}
+    headers = {"Authorization": f"Bearer {config.GH_TOKEN}"}
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
