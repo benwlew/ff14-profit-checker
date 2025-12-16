@@ -14,10 +14,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - run: |
+      - name: Install requirements
+        run: |
           pip install -r requirements.txt
+      - name: Update database
+        run: |
           python update_db.py
-          env:
+        env:
             GH_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: commit files
         run: |
@@ -29,5 +32,5 @@ jobs:
       - name: push changes
         uses: ad-m/github-push-action@v0.6.0
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_TOKEN }}
           branch: main 
