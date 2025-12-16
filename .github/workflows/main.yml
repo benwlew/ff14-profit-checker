@@ -18,10 +18,10 @@ jobs:
         run: |
           pip install -r requirements.txt
       - name: Update database
-        run: |
-          python update_db.py
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          python update_db.py
       - name: commit files
         run: |
           git config --local user.email "action@github.com"
