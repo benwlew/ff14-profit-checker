@@ -3,3 +3,4 @@ duckdb
 requests
 polars
 streamlit
+python-dotenv
