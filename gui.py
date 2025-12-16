@@ -118,7 +118,7 @@ def price_lookup(lookup_items_df: pl.DataFrame, region: str = "Japan") -> pl.Dat
 
 def join_dfs(lookup_items_df: pl.DataFrame, prices_df: pl.DataFrame) -> pl.DataFrame:
     combined_df = lookup_items_df.join(
-        prices_df, on="id", maintain_order="left"
+        prices_df, on="id", how="left"
     ).with_row_index()
 
     with duckdb.connect(DB_NAME) as con:
@@ -193,94 +193,102 @@ def print_result(df: pl.DataFrame) -> int:
         nq_velocity = df[0]["nq_velocity"][0]
     except:
         nq_velocity = 0
-
-    total_velocity = hq_velocity + nq_velocity
-    return total_velocity
+    try:
+        total_velocity = hq_velocity + nq_velocity
+        return total_velocity
+    except:
+        return None
+    
 
 
 def print_metrics(item_id: str, df: pl.DataFrame, craft_cost_total: int) -> float:
     st.markdown("## Craft Details")
 
-    prices = (
-        duckdb.sql(
-            f"select shop_price, nq_price, hq_price from df where id = {item_id}"
+    try:
+        prices = (
+            duckdb.sql(
+                f"select shop_price, nq_price, hq_price from df where id = {item_id}"
+            )
+            .pl()
+            .to_dicts()[0]
         )
-        .pl()
-        .to_dicts()[0]
-    )
-    prices = {k: v for k, v in prices.items() if v is not None}
-    result_min_source = min(prices, key=prices.get)
-    result_min_price = prices[result_min_source]
+        prices = {k: v for k, v in prices.items() if v is not None}
+        result_min_source = min(prices, key=prices.get)
+        result_min_price = prices[result_min_source]
 
-    metric_col1, metric_col2, metric_col3, metric_col4, metric_col5, metric_col6 = (
-        st.columns(6)
-    )
+        metric_col1, metric_col2, metric_col3, metric_col4, metric_col5, metric_col6 = (
+            st.columns(6)
+        )
 
-    amount = df["amount"][0]
-    craft_cost_each = int(craft_cost_total / amount)
-    hq_price_each = df["hq_price"][0]
-    hq_price_total = hq_price_each * amount
-    pl_each = hq_price_each - craft_cost_each
-    pl_total = pl_each * amount
-    pl_total_formatted = f"{pl_total:,}"
-    pl_perc = pl_each / hq_price_each
-    pl_perc_formatted = f"{pl_perc:,.2%}"
+        amount = df["amount"][0]
+        craft_cost_each = int(craft_cost_total / amount)
+        hq_price_each = df["hq_price"][0]
+        hq_price_total = hq_price_each * amount
+        pl_each = hq_price_each - craft_cost_each
+        pl_total = pl_each * amount
+        pl_total_formatted = f"{pl_total:,}"
+        pl_perc = pl_each / hq_price_each
+        pl_perc_formatted = f"{pl_perc:,.2%}"
 
-    with metric_col1:
-        with st.container(border=True):
-            if df["amount"][0] == 1:
-                st.metric(f"Craft Cost", f"{craft_cost_each:,}")
-            if df["amount"][0] > 1:
-                st.metric(
-                    f"Craft Cost",
-                    f"{craft_cost_total:,} ({craft_cost_each:,})"
-                )
-    with metric_col2:
-        with st.container(border=True):
-            if df["amount"][0] == 1:
-                st.metric(
-                    f"Profit/Loss",
-                    f"{pl_each:,}",
-                    pl_perc_formatted,
-                    help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
-                )
-            if df["amount"][0] > 1:
-                st.metric(
-                    f"Profit/Loss",
-                    f"{pl_total:,} ({pl_each:,})",
-                    pl_perc_formatted,
-                    help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
-                )
-    with metric_col4:
-        with st.container(border=True):
-            if df["amount"][0] == 1:
-                st.metric(
-                    f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
-                    f"{result_min_price:,}",
-                )
-            elif df["amount"][0] > 1:
-                st.metric(
-                    f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
-                    f"{result_min_price * amount:,} ({result_min_price:,})",
-                    help="Number in parentheses is single item cost",
-                )
-    with metric_col5:
-        with st.container(border=True):
-            if df["hq_price"] is not None:
+        with metric_col1:
+            with st.container(border=True):
                 if df["amount"][0] == 1:
-                    st.metric(f"HQ Price", f"{hq_price_each:,}")
+                    st.metric(f"Craft Cost", f"{craft_cost_each:,}")
                 if df["amount"][0] > 1:
                     st.metric(
-                        f"HQ Price",
-                        f"{hq_price_total:,} ({hq_price_each:,})",
+                        f"Craft Cost",
+                        f"{craft_cost_total:,} ({craft_cost_each:,})"
+                    )
+        with metric_col2:
+            with st.container(border=True):
+                if df["amount"][0] == 1:
+                    st.metric(
+                        f"Profit/Loss",
+                        f"{pl_each:,}",
+                        pl_perc_formatted,
+                        help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
+                    )
+                if df["amount"][0] > 1:
+                    st.metric(
+                        f"Profit/Loss",
+                        f"{pl_total:,} ({pl_each:,})",
+                        pl_perc_formatted,
+                        help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
+                    )
+        with metric_col4:
+            with st.container(border=True):
+                if df["amount"][0] == 1:
+                    st.metric(
+                        f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
+                        f"{result_min_price:,}",
+                    )
+                elif df["amount"][0] > 1:
+                    st.metric(
+                        f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
+                        f"{result_min_price * amount:,} ({result_min_price:,})",
                         help="Number in parentheses is single item cost",
                     )
-
-    return pl_perc
+        with metric_col5:
+            with st.container(border=True):
+                if df["hq_price"] is not None:
+                    if df["amount"][0] == 1:
+                        st.metric(f"HQ Price", f"{hq_price_each:,}")
+                    if df["amount"][0] > 1:
+                        st.metric(
+                            f"HQ Price",
+                            f"{hq_price_total:,} ({hq_price_each:,})",
+                            help="Number in parentheses is single item cost",
+                        )
+        return pl_perc
+    except:
+        return None
+    
 
 
 def print_pl_warning(pl_perc: float) -> None:
-    if pl_perc < 0:
+    if pl_perc is None:
+        return
+    elif pl_perc < 0:
         st.error(
             f"Buying ingredients and crafting this item will result in a loss: {pl_perc:,.2%}",
             icon="🔥",
@@ -292,7 +300,9 @@ def print_pl_warning(pl_perc: float) -> None:
 
 
 def print_velocity_warning(velocity: int) -> None:
-    if velocity < 15:
+    if velocity is None:
+        return
+    elif velocity < 15:
         st.error(f"Item won't sell: {velocity:,}/day", icon="🔥")
     elif velocity < 99:
         st.warning(f"Item will sell really slowly: {velocity:,}/day", icon="🚨")
@@ -506,17 +516,10 @@ if __name__ == "__main__":
     with col2:
         with st.container(horizontal_alignment="right"):
             region_selectbox = st.selectbox("Select region", "Japan", width=200)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.text(
-            "Select recipe to check if better value to craft from ingredients or buy from marketboard.  \nNumber in parentheses is item id."
-        )
-
-    with col2:
-        with st.container(horizontal_alignment="right", vertical_alignment="top"):
-            region_selectbox = st.selectbox("Select server", "Masamune", width=200)
-
+    
+    st.text(
+        "Select recipe to check if better value to craft from ingredients or buy from marketboard.  \nNumber in parentheses is item id."
+    )
     
     if "default_item_index" not in st.session_state:
         # Pass id parameter from url if available - doesn't seem to be working on streamlit cloud
@@ -555,31 +558,15 @@ if __name__ == "__main__":
         # with cont_ingr_table:
         #     print_ingredients_table(combined_df)
         with cont_result:
-            velocity = print_result(combined_df)
-        with cont_analysis:
-            pl_perc = print_metrics(item_id, combined_df, craft_cost_total)
-        with cont_pl_warning:
-            print_pl_warning(pl_perc)
-        with cont_velocity_warning:
-            print_velocity_warning(velocity)
-
-
-### TODO number_input dependencies
-
-
-# TOTAL = 100
-
-# def update(last):
-#     change = ss.A + ss.B + ss.C - TOTAL
-#     sliders = ['A','B','C']
-#     last = sliders.index(last)
-#     # Modify to 'other two'
-#     # Add logic here to deal with rounding and to protect against edge cases (if one of the 'others'
-#     # doesn't have enough room to accomodate the change)
-#     ss[sliders[(last+1)%3]] -= change/2
-#     ss[sliders[(last+2)%3]] -= change/2
-
-
-# st.number_input('A', key='A', min_value=0, max_value=100, value = 50, on_change=update, args=('A',))
-# st.number_input('B', key='B', min_value=0, max_value=100, value = 25, on_change=update, args=('B',))
-# st.number_input('C', key='C', min_value=0, max_value=100, value = 25, on_change=update, args=('C',))
+            total_velocity = print_result(combined_df)
+        
+        if total_velocity is None:
+            with cont_analysis:
+                    st.error("Error fetching price data from Universalis - item may be too new or Universalis may be down.")
+        else:
+            with cont_analysis:
+                pl_perc = print_metrics(item_id, combined_df, craft_cost_total)
+            with cont_pl_warning:
+                print_pl_warning(pl_perc)
+            with cont_velocity_warning:
+                print_velocity_warning(velocity)
