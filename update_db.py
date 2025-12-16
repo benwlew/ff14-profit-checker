@@ -30,7 +30,7 @@ def local_last_updated(file: str) -> Optional[datetime]:
     Returns:
         Optional[datetime]: The last modified time in UTC, or None if file not found
     """
-    file_path = Path("csv_dump") / file
+    file_path = Path("csv") / file
     try:
         updated_datetime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
         logger.debug(f"Last modified time for {file}: {updated_datetime}")
@@ -39,7 +39,7 @@ def local_last_updated(file: str) -> Optional[datetime]:
         logger.info(f"File not found: {file}")
         return None
 
-def git_last_updated(file: str) -> Optional[datetime]:
+def git_last_updated(owner:str, repo: str, file: str) -> Optional[datetime]:
     """Get the last update time of a file from GitHub.
     
     Args:
@@ -48,7 +48,7 @@ def git_last_updated(file: str) -> Optional[datetime]:
     Returns:
         Optional[datetime]: The last commit time in UTC, or None if request fails
     """
-    url = f"https://api.github.com/repos/xivapi/ffxiv-datamining/commits?path=csv/{file}"
+    url = f"https://api.github.com/repos/{owner}/{repo}/commits?path=csv/{file}"
     headers = {"Authorization": f"Bearer {GH_TOKEN}"}
     
     try:
@@ -69,14 +69,14 @@ def save_csv(file: str) -> bool:
     Returns:
         bool: True if successful, False otherwise
     """
-    url = f"https://github.com/xivapi/ffxiv-datamining/blob/master/csv/{file}?raw=true"
+    url = f"https://github.com/{owner}/{repo}/blob/master/csv/{file}?raw=true"
     headers = {"Authorization": f"Bearer {GH_TOKEN}"}
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
-        os.makedirs("csv_dump", exist_ok=True)
-        with open(fr"csv_dump\{file}", "w", newline='',encoding='utf-8') as f:
+        os.makedirs("csv", exist_ok=True)
+        with open(fr"csv\{file}", "w", newline='',encoding='utf-8') as f:
             f.write(response.text)
             
         logger.info(f"Successfully downloaded {file}")
@@ -96,8 +96,9 @@ def update_csv(files: List[str]) -> List[str]:
     """
     updated_csv = []
     for file in files:
-        local_latest = local_last_updated(file)
-        git_latest = git_last_updated(file)
+        # local_latest = local_last_updated(file)
+        local_latest = git_last_updated("benwlew", "xivprofitcheck", file)
+        git_latest = git_last_updated("xivfile", "ffxiv-datamining", file)
         
         logger.debug(f"File: {file} - Local: {local_latest}, GitHub: {git_latest}")
         
@@ -134,7 +135,7 @@ def update_duckdb(updated_files: List[str]) -> None:
             logger.debug(f"Processing {filename} for database update")
             
             df = pl.read_csv(
-                fr"csv_dump\{file}", 
+                fr"csv\{file}", 
                 skip_rows=1, 
                 skip_rows_after_header=1
             )
