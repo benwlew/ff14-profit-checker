@@ -23,6 +23,8 @@ jobs:
       - name: Update database
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          ACTIONS_STEP_DEBUG: true # Enable detailed step logging
+          RUNNER_DEBUG: true
         run: |
           python update_db.py
       - name: Commit files
