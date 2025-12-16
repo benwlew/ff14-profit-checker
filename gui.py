@@ -1,8 +1,6 @@
 """
 TODO
 - Handle multiple regions/servers
-- Host online
-- Add st.query_params to allow sharing of specific item links
 - Add item images?
 - Add item source, e.g. currency if vendor
 - Add item number dependencies for number_input (never exceed total needed); not sure how to implement
