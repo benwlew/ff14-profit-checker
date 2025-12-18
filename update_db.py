@@ -44,9 +44,19 @@ def git_last_updated(owner:str, repo: str, file: str) -> Optional[datetime]:
         Optional[datetime]: The last commit time in UTC, or None if request fails
     """
     
-    url = f"https://api.github.com/repos/{owner}/{repo}/commits?path=csv/{file}"
     headers = {"Authorization": f"Bearer {GH_TOKEN}"}
-    
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/csv/{file}"
+    try:
+        response = requests.get(url, headers=headers)
+        if not response.status_code != 200:
+            logger.warning(f"File {file} not found in {owner}/{repo}")
+            return None
+    except:
+        logger.warning(f"File {file} not found in {owner}/{repo}")
+        return None
+     
+    url = f"https://api.github.com/repos/{owner}/{repo}/commits?path=csv/{file}"
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
