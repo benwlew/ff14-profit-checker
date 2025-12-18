@@ -21,3 +21,6 @@ jobs:
         env:
           github_token: ${{ secrets.GH_TOKEN }}
           branch: main 
+      - name: Download CSVs again
+        run: |
+          gh workflow run main.yml --ref main
