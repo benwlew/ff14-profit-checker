@@ -49,11 +49,11 @@ def git_last_updated(owner:str, repo: str, file: str) -> Optional[datetime]:
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/csv/{file}"
     try:
         response = requests.get(url, headers=headers)
-        if not response.status_code != 200:
-            logger.warning(f"File {file} not found in {owner}/{repo}")
+        if not response.status_code == 200:
+            logger.warning(f"File {file} not found at {url}")
             return None
     except:
-        logger.warning(f"File {file} not found in {owner}/{repo}")
+        logger.warning(f"File {file} not found at {url}")
         return None
      
     url = f"https://api.github.com/repos/{owner}/{repo}/commits?path=csv/{file}"
