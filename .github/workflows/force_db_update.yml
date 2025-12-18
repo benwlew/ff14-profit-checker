@@ -23,7 +23,7 @@ jobs:
           git push
       - name: Download CSVs again
         env:
-            github_token: ${{ secrets.GH_TOKEN }}
+            GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           gh workflow run main.yml --ref main
           
