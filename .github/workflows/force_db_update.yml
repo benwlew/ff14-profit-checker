@@ -8,6 +8,7 @@ jobs:
     environment: production
     permissions:
       contents: write
+      actions: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
