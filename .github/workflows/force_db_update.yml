@@ -1,0 +1,23 @@
+name: Force update databases
+run-name: Force update databases
+on:
+  workflow_dispatch:
+jobs:
+  force-update-db:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Remove existing CSVs
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git rm -r --cached /csv
+          git commit -m "Remove existing CSVs" || true
+          git push
+        env:
+          github_token: ${{ secrets.GH_TOKEN }}
+          branch: main 
