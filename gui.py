@@ -4,9 +4,9 @@ TODO
 - Add item images?
 - Add item source, e.g. currency if vendor
 - Add item number dependencies for number_input (never exceed total needed); not sure how to implement
+- Add server data (cheapest selling on own server, server for cheapest NQ/HQ)
 """
 
-from typing import List, Optional, Dict, Union
 import duckdb
 import requests
 import polars as pl

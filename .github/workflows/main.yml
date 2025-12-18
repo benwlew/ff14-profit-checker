@@ -3,7 +3,7 @@ run-name: Update databases
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 11 * * *'  # Runs every day at midnight
+    - cron: '0 11 * * *'  # Runs every day at 8pm JST
 jobs:
   Update-db:
     runs-on: ubuntu-latest

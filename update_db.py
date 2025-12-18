@@ -20,7 +20,7 @@ csv_files =["Item.csv", "ItemFood.csv", "ItemLevel.csv", "ItemSearchCategory.csv
         "ItemSeries.csv", "ItemSortCategory.csv", "ItemUICategory.csv",
         "RecipeNotebookList.csv", "Recipe.csv", "RecipeLevelTable.csv",
         "RecipeLookup.csv", "RecipeNotebookList.csv", "RecipeSubCategory.csv",
-        "GilShop.csv", "GilShopInfo.csv", "GilShopItem.csv"]
+        "GilShop.csv", "GilShopInfo.csv", "GilShopItem.csv", "World.csv", "WorldDCGroupType.csv"]
 
 
 def local_last_updated(file: str) -> Optional[datetime]:
@@ -154,6 +154,11 @@ def update_duckdb(updated_files: List[str]) -> None:
            db.execute(fr"CREATE OR REPLACE TABLE main.recipe_price AS SELECT * FROM df")
            logger.info("Created main.recipe_price table")
 
+        with open("wolrd_dc.sql", "r") as f:
+           query = f.read()
+           df = db.sql(query).pl()
+           db.execute(fr"CREATE OR REPLACE TABLE main.world_dc AS SELECT * FROM df")
+           logger.info("Created main.world_dc table")
 
 def main():
     """Main function to update database with latest FFXIV data."""
