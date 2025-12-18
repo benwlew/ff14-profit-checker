@@ -12,15 +12,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
       - name: Remove existing CSVs
+        env:
+            github_token: ${{ secrets.GH_TOKEN }}
+            branch: main   
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git rm -r --cached ./csv || true
           git commit -m "Remove existing CSVs" || true
           git push
-        env:
-          github_token: ${{ secrets.GH_TOKEN }}
-          branch: main 
+        
       - name: Download CSVs again
+        env:
+            github_token: ${{ secrets.GH_TOKEN }}
         run: |
           gh workflow run main.yml --ref main
+          
