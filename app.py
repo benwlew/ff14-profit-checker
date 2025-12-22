@@ -34,7 +34,7 @@ def get_all_recipes() -> pl.DataFrame:
     # Concat item_id to the end of item_name to make selectbox easily searchable
     # Some items can be crafted by two jobs (ARM/BSM) with slightly different recipes, so appending job name to the end as well
     df = df.with_columns(
-        pl.when(df["recipe_id"].is_in(two_job_craftable["recipe_id"]))
+        pl.when(df["recipe_id"].is_in(two_job_craftable["recipe_id"].implode()))
         .then(pl.concat_str(["item_name", pl.lit(" ("), "item_id", pl.lit(")"),pl.lit(" ("), "job", pl.lit(")")]))
         .otherwise(pl.concat_str(["item_name", pl.lit(" ("), "item_id", pl.lit(")")]))
         .alias("selectbox_label")
