@@ -1,15 +1,11 @@
 """
 TODO
-- Fix metrics not updating
-- Remove row gaps
-- Force url change on DC selection
+- Remove items that are craftable but not sellable
+- Add item source, e.g. currency if vendor
 - Add Japanese language support
 - Make sure large numbers fit in st.metrics
-- Add item source, e.g. currency if vendor
 - Add world functionality (cheapest selling on dc vs world)
 - Add checkbox to consider p/l against NQ
-- Add item number dependencies for number_input (never exceed total needed); not sure how to implement
-- Clean up repeated variable assignment
 """
 
 import duckdb
@@ -22,13 +18,13 @@ import json
 DB_NAME = "ffxiv_price.duckdb"
 
 
-def make_icon_url(icon: int) -> str:
-    folder = f"{icon:0>6}"
-    folder = folder[:3] + "000"
-    icon_url = f"https://v2.xivapi.com/api/asset?path=ui/icon/{folder}/{icon:0>6}.tex&format=png"
 
-    return icon_url
-
+@st.cache_data
+def get_worlds_dc() -> pl.DataFrame:
+    with duckdb.connect(DB_NAME) as con:
+        query = """SELECT * from  world_dc"""
+        df = con.sql(query).pl()
+    return df
 
 @st.cache_data
 def get_all_recipes() -> pl.DataFrame:
@@ -52,30 +48,16 @@ def get_all_recipes() -> pl.DataFrame:
     return df
 
 
-def get_worlds_dc() -> pl.DataFrame:
-    with duckdb.connect(DB_NAME) as con:
-        query = """SELECT * from  world_dc"""
-        df = con.sql(query).pl()
-    return df
-
-
 @st.cache_data
-def get_recipe_ingr(all_recipes_df: pl.DataFrame, recipe_id: int) -> pl.DataFrame:
+def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> pl.DataFrame:
+    ## Get market price data from universalis API
     
-    # Get recipe ingredient IDs to be passed to API request
-    df = all_recipes_df.filter(pl.col("recipe_id") == recipe_id)
-    
-    return df
-
-
-@st.cache_data
-def price_lookup(lookup_items_df: pl.DataFrame, region: str) -> pl.DataFrame:
-    
+    # Prepare API call with parameters
     lookup_item_ids  =  [
         str(id) for id in lookup_items_df["item_id"]]
     url = f"https://universalis.app/api/v2/{region}/{','.join(lookup_item_ids)}"
     
-    # GET from Universalis API twice per item - once each for NQ/HQ
+    # GET data from Universalis API twice per item - once each for NQ/HQ
     raw_market_data = {}
     for hq in [False, True]:
         parameters = {
@@ -83,48 +65,52 @@ def price_lookup(lookup_items_df: pl.DataFrame, region: str) -> pl.DataFrame:
             "listings": 100,
             "fields": "items.nqSaleVelocity,items.hqSaleVelocity,items.listings.pricePerUnit,items.listings.onMannequin,listings.worldName",
         }
+        
         try:
             response = requests.get(url, params=parameters)
-            requests.Response.raise_for_status()
-        except:
-            print(f'Unable to get response from Universalis')
+            response.raise_for_status()
+        except Exception as e:
+            st.error("No response from Universalis.app - please try again")
+            st.markdown(f"e: response.status_code")
+            st.stop()
 
-        # Unpivot and unnest json, filter out Mannquin items (false listings), find minimum price for each group, then merge NQ/HQ data together
+
+        # Unpivot and unnest json data
         data = response.json()["items"]
-        data = pl.DataFrame(data).unpivot().rename({"variable": "id"}).unnest("value")
-        data = data.explode("listings").unnest("listings")
-        data = data.filter(
+        df = pl.DataFrame(data).unpivot().rename({"variable": "id"}).unnest("value")
+        df = df.explode("listings").unnest("listings")
+        
+        # Filter out Mannquin items (irrelevant listings)
+        df = df.filter(
             (pl.col("onMannequin") == False) | pl.col("onMannequin").is_null()
         )
-        data = data.group_by("id").min()
+
+        # Find minimum price for each group, then merge NQ/HQ data together
+        df = df.group_by("id").min()
         if hq:
-            hq_data = data.select(
+            hq_df = df.select(
                 pl.col("id"),
                 pl.col("pricePerUnit").alias("hq_price"),
                 pl.col("hqSaleVelocity").alias("hq_velocity"),
             )
-            raw_market_data["hq"] = response.json()
         elif not hq:
-            nq_data = data.select(
+            nq_df = df.select(
                 pl.col("id"),
                 pl.col("pricePerUnit").alias("nq_price"),
                 pl.col("nqSaleVelocity").alias("nq_velocity"),
             )
-            raw_market_data["nq"] = response.json()
 
-    market_data = nq_data.join(hq_data, on="id").sort("id").cast(pl.Int64).rename({"id":"item_id"})
+    prices_df = nq_df.join(hq_df, on="id").sort("id").cast(pl.Int64).rename({"id":"item_id"})
 
-    return market_data
-
-
-def join_dfs(lookup_items_df: pl.DataFrame, prices_df: pl.DataFrame) -> pl.DataFrame:
-    combined_df = lookup_items_df.join(prices_df, on="item_id", how="left").with_row_index()
-    return combined_df
+    return prices_df
 
 
 def print_result(df: pl.DataFrame) -> int:
-    ### Create grid for item
+    st.markdown("## Craft Details")
+    
+    ## Create grid for result item
 
+    # Create grid for data
     result_grid = {}
     for x in range(2):
         y = st.columns(5, border=True, gap=None)
@@ -143,6 +129,7 @@ def print_result(df: pl.DataFrame) -> int:
     hq_velocity = df.item(0, "hq_velocity")
     icon_url = make_icon_url(df.item(0, "item_icon"))
 
+    # Populate header row with column names
     row = 0
     result_grid[(row, 0)].markdown("**Item**",
                                    help="Number below item name is item ID")
@@ -151,7 +138,8 @@ def print_result(df: pl.DataFrame) -> int:
     result_grid[(row, 3)].markdown("**NQ Price**")
     result_grid[(row, 4)].markdown("**HQ Price**")
 
-    
+    # Populate second row with result item data
+    row = 1
     with result_grid[(row, 0)]:
         st.markdown(f"![{name}]({icon_url}) {name} ({str(id)})")
     result_grid[(row, 1)].write(f"{amount}")
@@ -173,30 +161,16 @@ def print_result(df: pl.DataFrame) -> int:
             st.write(f"{hq_price:,}")
             st.write(f"Velocity: {hq_velocity:,}/day")
 
-    try:
-        hq_velocity = hq_velocity
-    except:
-        hq_velocity = 0
-    try:
-        nq_velocity = nq_velocity
-    except:
-        nq_velocity = 0
-    try:
-        total_velocity = hq_velocity + nq_velocity
-        return total_velocity
-    except:
-        return None
-
 
 def print_metrics(result_df: pl.DataFrame, craft_cost_total: int) -> float:
-    st.markdown("## Craft Details")
-    # st.image(icon_link(icon))
-    
+    ## Create summary table at top of page
+    # Calculate source of cheapest item
     min_price_df = result_df.select(pl.col("shop_price", "nq_price","hq_price")).unpivot(variable_name="source", value_name="price")
     min_price_df = min_price_df.filter(pl.col("price") == pl.col("price").min()).unique()
     try:
         result_min_source = min_price_df.select(pl.col("source")).item()
     except: 
+    # Prioritise HQ > Shop > NQ if multiple sources have the same price
         if "hq_price" in min_price_df["source"].to_list():
             result_min_source = "hq_price"
         elif "shop_price" in min_price_df["source"].to_list():
@@ -206,44 +180,40 @@ def print_metrics(result_df: pl.DataFrame, craft_cost_total: int) -> float:
     result_min_price = min_price_df.select(pl.col("price")).unique().item()
     
 
-    name = result_df.item(0, "item_name")
-    id = result_df.item(0, "item_id")
-    shop_price = result_df.item(0, "shop_price")
-    nq_price = result_df.item(0, "nq_price")
-    nq_velocity = result_df.item(0, "nq_velocity")
-    hq_velocity = result_df.item(0, "hq_velocity")
+    # Calculate numbers to go into grid
+    result_amount = result_df.item(0, "item_amount")
+    craft_cost_each = int(craft_cost_total / result_amount)
     
-    metric_col1, metric_col2, metric_col3, metric_col4, metric_col5, metric_col6 = (
-        st.columns(6, border=True, gap=None)
-    )
-
-    amount = result_df.item(0, "item_amount")
-    craft_cost_each = int(craft_cost_total / amount)
+    # TODO Handle result item with no HQ available
     try:
         hq_price_each = result_df.item(0, "hq_price")
-        hq_price_total = hq_price_each * amount
+        hq_price_total = hq_price_each * result_amount
         pl_each = hq_price_each - craft_cost_each
-        pl_total = pl_each * amount
+        pl_total = pl_each * result_amount
         pl_perc = pl_each / hq_price_each
 
+    # Create empty grid for result item data    
+        metric_col1, metric_col2, metric_col3, metric_col4, metric_col5, metric_col6 = (
+        st.columns(6, border=True, gap=None)
+    )
         with metric_col1:
             with st.container():
-                if amount == 1:
+                if result_amount == 1:
                     st.metric(f"Craft Cost", f"{craft_cost_each:,} gil")
-                elif amount > 1:
+                elif result_amount > 1:
                     st.metric(
                         f"Craft Cost", f"{craft_cost_total:,} ({craft_cost_each:,} gil)"
                     )
         with metric_col2:
             with st.container():
-                if amount == 1:
+                if result_amount == 1:
                     st.metric(
                         f"Profit/Loss (NQ)",
                         f"{pl_each:,} gil",
                         f"{pl_perc:.2%}",
                         help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
                     )
-                if amount > 1:
+                if result_amount > 1:
                     st.metric(
                         f"Profit/Loss (NQ)",
                         f"{pl_total:,} gil ({pl_each:,} gil each)",
@@ -252,14 +222,14 @@ def print_metrics(result_df: pl.DataFrame, craft_cost_total: int) -> float:
                     )
         with metric_col3:
             with st.container():
-                if amount == 1:
+                if result_amount == 1:
                     st.metric(
                         f"Profit/Loss (HQ)",
                         f"{pl_each:,} gil",
                         f"{pl_perc:.2%}",
                         help="Calculated agains HQ buy price - assuming that crafters will always aim for HQ",
                     )
-                if amount > 1:
+                if result_amount > 1:
                     st.metric(
                         f"Profit/Loss (HQ)",
                         f"{pl_total:,} gil ({pl_each:,} gil each)",
@@ -269,23 +239,23 @@ def print_metrics(result_df: pl.DataFrame, craft_cost_total: int) -> float:
         
         with metric_col4:
             with st.container():
-                if amount == 1:
+                if result_amount == 1:
                     st.metric(
                         f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
                         f"{result_min_price:,} gil",
                     )
-                elif amount > 1:
+                elif result_amount > 1:
                     st.metric(
                         f"Cheapest price: :blue[{result_min_source.split('_')[0]}]",
-                        f"{result_min_price * amount:,} gil ({result_min_price:,} gil each)",
+                        f"{result_min_price * result_amount:,} gil ({result_min_price:,} gil each)",
                         help="Number in parentheses is single item cost",
                     )
         with metric_col5:
             with st.container():
                 if nq_price is not None:
-                    if amount == 1:
+                    if result_amount == 1:
                         st.metric(f"NQ Price", f"{hq_price_each:,} gil")
-                    if amount > 1:
+                    if result_amount > 1:
                         st.metric(
                             f"NQ Price",
                             f"{nq_price_total:,} gil ({nq_price_each:,} gil each)",
@@ -294,9 +264,9 @@ def print_metrics(result_df: pl.DataFrame, craft_cost_total: int) -> float:
         with metric_col6:
             with st.container():
                 if hq_price is not None:
-                    if amount == 1:
+                    if result_amount == 1:
                         st.metric(f"HQ Price", f"{hq_price_each:,} gil")
-                    if amount > 1:
+                    if result_amount > 1:
                         st.metric(
                             f"HQ Price",
                             f"{hq_price_total:,} gil ({hq_price_each:,} gil each)",
@@ -305,54 +275,59 @@ def print_metrics(result_df: pl.DataFrame, craft_cost_total: int) -> float:
 
     except:
         nq_price_each = result_df.item(0, "nq_price")
-        nq_price_total = nq_price_each * amount
+        nq_price_total = nq_price_each * result_amount
         pl_each = nq_price_each - craft_cost_each
-        pl_total = pl_each * amount
+        pl_total = pl_each * result_amount
         pl_perc = pl_each / nq_price_each
-    
 
-
-    return pl_perc
+    return pl_perc #should handle nq+hq pl_perc
 
 
 
-def print_pl_warning(pl_perc: float) -> None:
-    if pl_perc is None:
-        return
-    elif pl_perc < 0:
+def print_pl_warning(pl_perc: float):
+    ## Display advice based on profit/loss %
+    if pl_perc < 0:
         st.error(
-            f"Buying ingredients and crafting this item will result in a loss: {pl_perc:,.2%}",
+            f"&nbsp; Buying ingredients and crafting this item will result in a loss: {pl_perc:,.2%}",
             icon="🔥",
         )
     elif pl_perc < 0.25:
-        st.warning(f"Low profit margin (below 25%): {pl_perc:,.2%}", icon="🚨")
+        st.warning(f"&nbsp; Low profit margin (below 25%): {pl_perc:,.2%}", icon="🚨")
     else:
-        st.success(f"Profit above 25%: {pl_perc:,.2%}", icon="🥳")
+        st.success(f"&nbsp; Profit above 25%: {pl_perc:,.2%}", icon="🥳")
 
 
 def print_velocity_warning(velocity: int) -> None:
+    ## Display advice based on velocity
     if velocity is None:
         return
     elif velocity < 15:
-        st.error(f"Item won't sell: average {velocity:,} sales/day", icon="🔥")
+        st.error(f"&nbsp; Item won't sell: average {velocity:,} sold/day", icon="🔥")
     elif velocity < 99:
-        st.warning(f"Item will sell really slowly: average {velocity:,} sales/day", icon="🚨")
+        st.warning(f"&nbsp; Item will sell really slowly: average {velocity:,} sold/day", icon="🚨")
     else:
-        st.success(f"Item will sell: average {velocity:,}sales/day", icon="🥳")
+        st.success(f"&nbsp; Item will sell: average {velocity:,} sold/day", icon="🥳")
 
 
 @st.fragment
-def print_ingredients(df: pl.DataFrame) -> int:
+def print_ingredients(df: pl.DataFrame):
+    ## List ingredient data in a grid for clarity
+    
+    # Split data into result & ingredient dfs
     result_df = df.filter(pl.col("recipe_part") == "result")
     ingr_df = df.filter(pl.col("recipe_part").str.contains("ingredient"))
     
+    # Create header for section
     st.markdown("")
     st.markdown("# Ingredients")
     st.text(
-        "All items are set to NQ by default, but can be adjusted. The cost will update dynamically as item amounts are changed.  \nEach column is set to max out at the number needed, but it is possible to increase numbers over this limit when using multiple columns; to avoid this, users should lower NQ after increasing HQ and vice versa."
+        "All items are set to NQ by default, but can be adjusted.\n"
+        "Cost will update dynamically as item amounts are changed.\n"
+        "All items are set to NQ by default - if increasing other columns, make sure to decrease NQ as this is not automatic."
     )
     st.markdown("")
-    ### Create grid for items
+
+    ### Create blank grid for items
     ingr_grid = {}
     for x in range(len(ingr_df) + 1):
         y = st.columns(6, border=True, gap=None)
@@ -361,27 +336,20 @@ def print_ingredients(df: pl.DataFrame) -> int:
             tile = col.container()
             ingr_grid[coord] = tile
 
-    # Create grid header row
+    
+    # Populate grid header row with column names
     row = 0
     ingr_grid[(row, 0)].markdown("**Ingredient**",
                                  help="Number below item name is item ID; click link to lookup item profit/loss of subcraft (only for craftable items)")
     ingr_grid[(row, 1)].markdown("**Required**")
     ingr_grid[(row, 2)].markdown("**Shop price**")
-    ### TODO Buttons to set all don't work yet
-    ingr_grid[(row, 3)].button(
-        "**NQ**",
-        help="Click to set all to NQ",
-        type="tertiary",
-    )
-    ingr_grid[(row, 4)].button(
-        "**HQ**",
-        help="Click to set all to HQ",
-        type="tertiary",
-    )
+    ingr_grid[(row, 3)].markdown("**NQ**")
+    ingr_grid[(row, 4)].markdown("**HQ**")
     ingr_grid[(row, 5)].markdown("**Cost**")
 
+    ## Populate grid using data from ingredient df
 
-    # Fill row/columnm in grid
+    # Initialise variables from ingredient df
     craft_cost_total = 0
 
     for row in range(1, len(ingr_df) + 1):
@@ -397,14 +365,18 @@ def print_ingredients(df: pl.DataFrame) -> int:
         hq_velocity = ingr_df.item(index, "hq_velocity")
         icon_url = make_icon_url(df.item(index, "item_icon"))
 
+
+        # Ingredient name column
         with ingr_grid[(row, 0)]:
             if int(id) in results_df["item_id"]:
                 st.markdown(f"![{name}]({icon_url}) {name} ([{id}](/?id={id}))")
             else:
                 st.markdown(f"![{name}]({icon_url}) {name} ({id})")
 
+        # Ingredient amount column
         ingr_grid[(row, 1)].markdown(str(amount))
 
+        # Ingredient shop quantity/price column
         with ingr_grid[(row, 2)]:
             if shop_price is None:
                 st.write(":red[N/A  \n(Not sold in shop)]")
@@ -419,6 +391,8 @@ def print_ingredients(df: pl.DataFrame) -> int:
                 shop_total = shop_price * shop_qty
                 st.write(f"{shop_total:,} gil ({shop_price:,} gil each)")
                 row_cost += shop_total
+
+        # Ingredient market NQ quantity/price column
         with ingr_grid[(row, 3)]:
             if nq_price is None:
                 st.write(":red[N/A  \n(No NQ available)]")
@@ -435,6 +409,8 @@ def print_ingredients(df: pl.DataFrame) -> int:
                 st.write(f"{nq_total:,} gil ({nq_price:,} gil each)")
                 st.write(f"Velocity: {nq_velocity:,}/day")
                 row_cost += nq_total
+        
+        # Ingredient market HQ quantity/price column
         with ingr_grid[(row, 4)]:
             if hq_price is None:
                 st.write(":red[N/A  \n(No HQ available)]")
@@ -450,86 +426,75 @@ def print_ingredients(df: pl.DataFrame) -> int:
                 st.write(f"{hq_total:,} gil ({hq_price:,} gil each)")
                 st.write(f"Velocity: {nq_velocity:,}/day")
                 row_cost += hq_total
-        ingr_grid[(row, 5)].write(f"{row_cost:,}")
-        craft_cost_total += row_cost
 
-        # ingr_grid[(row, 6)].markdown(df.item(row,"cost"))
-    
-    name = result_df.item(0, "item_name")
-    id = result_df.item(0, "item_id")
-    amount = result_df.item(0, "item_amount")
-    shop_price = result_df.item(0, "shop_price")
-    nq_price = result_df.item(0, "nq_price")
+        # Ingredient total cost (per ingredient) column
+        ingr_grid[(row, 5)].write(f"{row_cost:,}")
+        
+
+
+        # Calculate and display ingredient total cost (all ingredients) row
+        craft_cost_total += row_cost
+    result_amount = result_df.item(0, "item_amount")
     nq_velocity = result_df.item(0, "nq_velocity")
-    hq_price = result_df.item(0, "hq_price")
     hq_velocity = result_df.item(0, "hq_velocity")
 
     total_velocity = nq_velocity + hq_velocity
-    craft_cost_each = int(craft_cost_total / amount)
+    craft_cost_each = int(craft_cost_total / result_amount)
 
-    totals_col = st.columns(4, border=False, gap=None)
-    with totals_col[len(totals_col)-1]:
-        if amount > 1:
-            st.write(
-                f"#### Total ingredient cost per craftable amount ({amount}): :red[{craft_cost_total:,}]"
-            )
-        st.write(f"#### Total ingredient cost: :red[{craft_cost_each:,} gil each]")
-
+    if result_amount > 1:
+        st.write(
+            f"#### Total ingredient cost per craftable amount ({result_amount}): :red[{craft_cost_total:,}]"
+        )
+    st.write(f"#### Total ingredient cost: :red[{craft_cost_each:,} gil each]")
 
     if total_velocity is None:
         with cont_analysis:
             st.error(
                 "Error fetching price data from Universalis - item may be too new or Universalis may be down."
             )
+            st.stop()
     else:
+        # Display summary of calculations at top of page
         with cont_analysis:
             pl_perc = print_metrics(result_df, craft_cost_total)
+        with cont_result:
+            print_result(result_df)
         with cont_pl_warning:
             print_pl_warning(pl_perc)
-        with cont_velocity_warning:
             print_velocity_warning(total_velocity)
 
-    return result_df, craft_cost_total
+    return
 
+
+def make_icon_url(icon: int) -> str:
+    folder = f"{icon:0>6}"
+    folder = folder[:3] + "000"
+    icon_url = f"https://v2.xivapi.com/api/asset?path=ui/icon/{folder}/{icon:0>6}.tex&format=png"
+
+    return icon_url
 
 
 if __name__ == "__main__":
-    st.set_page_config(layout="wide", page_title="FFXIV Crafting Profit/Loss Checker")
+    st.set_page_config(layout="wide", page_title="FFXIV Crafting Profit Calculator")
 
-    st.markdown(
-    """
-    <style>
-    [data-testid="stColumn"] {
-        border-radius: 0px;
-        border: 3px solid grey;
-        gap: 0rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True)
-
-    st.markdown("""
-        <style>
-            /* This targets vertical blocks (most elements) */
-            .stVerticalBlock {
-                gap: 0px !important;
-            }
-        </style>
-    """, unsafe_allow_html=True)
+    # Initialise page params
+    # Doesn't seem to be working on streamlit cloud?
+    if "dc" not in st.session_state:
+        try:
+            st.session_state.dc = st.query_params.dc
+        except:
+            st.session_state.dc = "Mana"
+    if "item" not in st.session_state:
+        try:
+            st.session_state.item = st.query_params.item
+        except:
+            st.session_state.item = None
 
 
+    # Initialise data centre and world dfs/lists
     worlds_dc_df = get_worlds_dc()
     dc_list = worlds_dc_df.select("datacentre").unique().to_series().to_list()
     dc_list.sort()
-
-    if "dc" not in st.session_state:
-        # Pass dc parameter from url if available - doesn't seem to be working on streamlit cloud
-        try:
-            st.session_state.dc = [item.lower() for item in dc_list].index(
-                st.query_params["dc"].lower()
-            )
-        except:
-            st.session_state.dc = 0
 
     world_list = worlds_dc_df.select("world").to_series().to_list()
     world_list.sort()
@@ -544,78 +509,119 @@ if __name__ == "__main__":
         )
         return world_list
     
+
+    # Initialise item and recipe dfs/lists
     all_recipes_df = get_all_recipes()  
     results_df = all_recipes_df.filter(pl.col("recipe_part") == "result")
     ingr_df = all_recipes_df.filter(pl.col("recipe_part").str.contains("ingredient"))
-    recipe_selectbox_list = results_df.select(pl.col("selectbox_label","recipe_id", "item_id"))
+
+
+    ## Create page elements
+    # Create sidebar for settings
     
+    with st.sidebar:
+        dc_selectbox = st.selectbox(
+            label="Select datacentre", options=dc_list, index=dc_list.index(st.session_state.dc)
+        )
+   
+        world_selectbox = st.selectbox(
+            "Select world (optional)", world_list, index=None, width=200
+        )
 
-    col1, col2 = st.columns(2, border=False,gap=None)
-    with col1:
-        st.title("FFXIV Crafting Profit/Loss Checker")
+
+    # Create main page elements
+    st.title("FFXIV Crafting Profit Calculator")
+        
+    # CSS injection to set non-rounded corners on columns to make them look like tables
+    # CSS injection to remove gap between rows of columns to make them look like tables
+    st.markdown(
+    """
+    <style>
+    .stColumn {
+        border-radius: 0px;
+        border: 2.5px solid grey;
+        gap: 0rem;
+    }
+            .stVerticalBlock :only-child {
+                gap: 0px !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(
+        "### Lookup item prices by crafted item to check if it's better value to craft from ingredients or buy direct from the marketboard/shops! ###"
+    )
     st.markdown("")
-
-    def dc_selectbox_reload():
-        st.switch_page("gui.py", query_params={"dc":dc_selectbox})
-        return
         
     
-    with col2:
-        with st.container(horizontal_alignment="right"):
-            dc_selectbox = st.selectbox(
-                "Select datacentre", dc_list, index=st.session_state.dc, width=200, on_change=dc_selectbox_reload
-            )
+    # Create recipe selectbox, including formatting data
+    recipe_selectbox_df = results_df.select(pl.col("selectbox_label","recipe_id", "item_id"))
 
-            if dc_selectbox:
-                world_list = filter_world(world_list, dc_selectbox)
-                
-            world_selectbox = st.selectbox(
-                "Select world (optional)", world_list, index=None, width=200
-            )
-
-    st.text(
-        "Select recipe to check if better value to craft from ingredients or buy from marketboard.  \nNumber in parentheses is item id."
-    )
-
-    if "default_item_index" not in st.session_state:
-        # Pass id parameter from url if available - doesn't seem to be working on streamlit cloud
+    def selectbox_index() -> int | None:
+    # Converts "item" query parameter to index used in selectbox
         try:
-            st.session_state.default_item_index = recipe_selectbox_list.select(
-                pl.col("item_id").index_of(st.query_params["id"])
-            )[0, 0]
+            item_id = int(st.session_state.item)
+            index = recipe_selectbox_df["item_id"].to_list().index(item_id)
+            return index
         except:
-            st.session_state.default_item_index = None
+            return None
 
     item_selectbox = st.selectbox(
-        "label",
-        options=recipe_selectbox_list["selectbox_label"],
-        index=st.session_state.default_item_index,
-        label_visibility="hidden",
-    )
+        label="Select recipe (number in parentheses is item id)",
+        options=recipe_selectbox_df["selectbox_label"],
+        index=selectbox_index())
+    
 
+
+    # Create elements and manipulate data that are loaded once item has been selected
     if item_selectbox:
-        lookup_item_id = recipe_selectbox_list.filter(
+
+        item_id = recipe_selectbox_df.filter(
             pl.col("selectbox_label") == item_selectbox
         ).select("item_id").item()
-        recipe_id = recipe_selectbox_list.filter(
+
+        recipe_id = recipe_selectbox_df.filter(
             pl.col("selectbox_label") == item_selectbox
         ).select("recipe_id").item()
         
+        # Update session state, page URL and page title after item is selected
+        if st.session_state.item == item_id:
+            pass
+        else:
+            st.session_state.item = item_id
+            st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":item_id})
+        
         st.set_page_config(layout="wide", page_title=item_selectbox)
 
-        cont_pl_warning = st.empty()
-        cont_velocity_warning = st.empty()
-        cont_analysis = st.empty()
-        cont_result = st.empty()
-        cont_ingr = st.empty()
-        cont_ingr_table = st.container()
 
-        lookup_items_df = get_recipe_ingr(all_recipes_df, recipe_id)
-        prices_df = price_lookup(lookup_items_df, dc_selectbox)
-        combined_df = join_dfs(lookup_items_df, prices_df)
+        # Create empy containers that will display information
         
-    
+        cont_analysis = st.container()
+        cont_pl_warning = st.container()
+        cont_result = st.container()
+        cont_ingr = st.container()
+
+
+        # Prepare data needed for Universalis API GET
+        items_to_lookup_df = all_recipes_df.filter(pl.col("recipe_id") == recipe_id)
+        market_prices_df = get_prices_from_universalis(items_to_lookup_df, st.session_state.dc)
+        if world_selectbox:
+            pass
+            #TODO world_result_cheapest =     
+
+        # Combine item data with market data
+        output_df = items_to_lookup_df.join(market_prices_df, on="item_id", how="left").with_row_index()        
+        
+        # Fill containers with content from output_df; output of several containers nested inside print_ingredients()
         with cont_ingr:
-            result_df, craft_cost_total = print_ingredients(combined_df)
-        with cont_result:
-            total_velocity = print_result(result_df)
+            print_ingredients(output_df)
+
+
+    # Update session state, page URL and page title after dc is selected
+    if dc_selectbox:
+        if st.session_state.dc == dc_selectbox:
+            world_list = filter_world(world_list, dc_selectbox)
+        else:
+            st.session_state.dc = dc_selectbox
+            st.switch_page("gui.py", query_params={"dc":dc_selectbox, "item":item_id})
+
