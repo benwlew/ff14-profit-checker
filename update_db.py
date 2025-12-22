@@ -140,8 +140,7 @@ def update_csv(files: List[str]) -> List[str]:
 
     return updated_csv
 
-def update_duckdb() -> None:
-    
+def update_duckdb() -> None:  
     with duckdb.connect(DB_NAME) as db:
         for file in csv_files:
             filename = os.path.splitext(file)[0]

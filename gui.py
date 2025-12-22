@@ -1,23 +1,17 @@
 """
 TODO
-- Remove items that are craftable but not sellable
-- Add item source, e.g. currency if vendor
-- Add Japanese language support
-- Make sure large numbers fit in st.metrics
 - Add world functionality (cheapest selling on dc vs world)
 - Add checkbox to consider p/l against NQ
+- Add item source, e.g. currency if vendor; SpecialShop.csv - nontrivial effort
+- Add Japanese language support; not sure where source is
 """
 
 import duckdb
 import requests
 import polars as pl
 import streamlit as st
-import json
-
 
 DB_NAME = "ffxiv_price.duckdb"
-
-
 
 @st.cache_data
 def get_worlds_dc() -> pl.DataFrame:

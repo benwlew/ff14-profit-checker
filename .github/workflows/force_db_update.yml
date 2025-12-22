@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-      - name: Remove existing CSVs
+      - name: Remove existing CSVs & duckdb
         env:
             github_token: ${{ secrets.GH_TOKEN }}
             branch: main   
@@ -20,7 +20,8 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git rm -r --cached ./csv || true
-          git commit -m "Remove existing CSVs" || true
+          git rm -r --cached ffxiv_price.duckdb || true
+          git commit -m "Remove existing CSVs & duckdb" || true
           git push
       - name: Download CSVs again
         env:

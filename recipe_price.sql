@@ -137,6 +137,7 @@ left join shop_items as s on
 	ur.item_id = s.item_id
 where
 	ur.item_id > 0
+	and i.IsUntradable = false
 order by
 	recipe_id asc,
 	recipe_part asc
