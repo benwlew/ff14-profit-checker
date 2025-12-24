@@ -138,6 +138,7 @@ left join shop_items as s on
 where
 	ur.item_id > 0
 	and i.IsUntradable = false
+	and i.ItemSearchCategory != 0 -- Exclude market prohibited items
 order by
 	recipe_id asc,
 	recipe_part asc
