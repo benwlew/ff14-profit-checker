@@ -16,7 +16,11 @@ from dataclasses import dataclass
 ### Configuration variables
 DB_NAME = "ffxiv_price.duckdb"
 home_page = st.Page("app.py", default=True)
+<<<<<<< HEAD
 default_profit_goal = 0.25  # Minimum profit % to show "good profit" message
+=======
+default_profit_goal = 25  # Minimum profit % to show "good profit" message
+>>>>>>> 9dc21862c226370a797634af5e99851482bec7ba
 default_velocity_warning = 15  # Minimum velocity to show "good sell" message
 default_velocity_goal = 40  # Minimum velocity to show "good sell" message
 
@@ -331,7 +335,11 @@ def sell_recommend(profit_perc, sell_velocity):
                 icon="🔥",
             )
     elif profit_perc < st.session_state.get("profit_goal"):
+<<<<<<< HEAD
         st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🚨")
+=======
+        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal")}%): {profit_perc:,.2%}", icon="🚨")
+>>>>>>> 9dc21862c226370a797634af5e99851482bec7ba
     else:
         st.success(f"&nbsp; Profit above {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🥳")
     if sell_velocity is None:
@@ -358,7 +366,11 @@ def buy_recommend(profit_perc):
                 icon="🔥",
             )
     elif profit_perc < st.session_state.get("profit_goal"):
+<<<<<<< HEAD
         st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🚨")
+=======
+        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal")}%): {profit_perc:,.2%}", icon="🚨")
+>>>>>>> 9dc21862c226370a797634af5e99851482bec7ba
     else:
         st.success(f"&nbsp; Profit above {st.session_state.get("profit_goal"):,.2%}): {profit_perc:,.2%}", icon="🥳")
 
@@ -620,6 +632,7 @@ if __name__ == "__main__":
                 st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
             st.space("stretch")
         st.checkbox("Only craft NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts. Check this if you are bulk crafting NQ items instead.", key="nq_craft")
+<<<<<<< HEAD
 
 
         profit_goal_input = st.number_input("Low profit % warning threshold", min_value=0, value=int(default_profit_goal*100), step=1, help="Set this to determine what threshold low profit will flag at", format="%0f")
@@ -628,6 +641,10 @@ if __name__ == "__main__":
                 st.session_state.profit_goal = profit_goal_input / 100
             except:
                 st.session_state.profit_goal = default_profit_goal
+=======
+
+        st.number_input("Low profit % warning threshold", min_value=0, value=int(default_profit_goal), key ="profit_goal", help="Set this to determine what threshold low profit will flag at")
+>>>>>>> 9dc21862c226370a797634af5e99851482bec7ba
         st.number_input("Low velocity warning threshold", min_value=0, value=int(default_velocity_goal), key ="velocity_goal", help="Set this to determine what threshold low velocity will flag at")
         sync_params_and_redirect()
 
