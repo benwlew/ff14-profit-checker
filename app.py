@@ -94,14 +94,14 @@ def get_prices_from_universalis(lookup_items_df: pl.DataFrame, region: str) -> p
             hq_df = df.select(
                 pl.col("id"),
                 pl.col("pricePerUnit").alias("hq_price"),
-                pl.col("hqSaleVelocity").floor().alias("hq_velocity"),
+                pl.col("hqSaleVelocity").round(2).alias("hq_velocity"),
                 pl.col("worldName").alias("hq_world")
             )
         elif not hq:
             nq_df = df.select(
                 pl.col("id"),
                 pl.col("pricePerUnit").alias("nq_price"),
-                pl.col("nqSaleVelocity").floor().alias("nq_velocity"),
+                pl.col("nqSaleVelocity").round(2).alias("nq_velocity"),
                 pl.col("worldName").alias("nq_world")
             )
         
@@ -164,10 +164,10 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     ## Create grid for result item
 
     if amount == 1:
-        st.metric(f"Craft Cost (sum of ingredients cost)", f"{craft_cost_each:,} gil")
+        st.metric(f"Craft Cost (sum of ingredient costs)", f"{craft_cost_each:,} gil")
     elif amount > 1:
         st.metric(
-            f"Craft Cost (sum of ingredients cost)", f"{craft_cost_total:,} gil ({craft_cost_each:,} gil each)"
+            f"Craft Cost (sum of ingredient costs)", f"{craft_cost_total:,} gil ({craft_cost_each:,} gil each)"
         )
     st.space(size="small")
 
@@ -212,18 +212,19 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
                 st.write(f"{nq_buy_price_each:,} gil @ {nq_buy_world}")
             elif amount > 1:
                 st.write(f"{nq_buy_price_each * amount:,} gil ({nq_buy_price_each:,} gil each @ {nq_buy_world})")
-            st.write(f"Velocity: {nq_buy_velocity:,.0f}/day")
+            st.write(f"Velocity: {nq_buy_velocity:,.2f}/day")
     with result_grid[(row, 1)]:
         with st.container():
             if amount == 1:
-                profit = nq_buy_price_each - craft_cost_each
+                savings = nq_buy_price_each - craft_cost_each
+                savings_perc = savings / nq_buy_price_each
             elif amount > 1:
-                profit = nq_buy_price_total - craft_cost_total
-            # profit_perc = profit / nq_buy_price_each
+                savings = nq_buy_price_total - craft_cost_total
+                savings_perc = savings / craft_cost_each
             st.metric(
             f"Amount saved crafting vs buying NQ",
-            f"{profit:,} gil",
-            # f"{profit_perc:.2%}"
+            f"{savings:,} gil",
+            f"{savings_perc:.2%}"
             )
 
     
@@ -244,18 +245,19 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
                 st.write(f"{hq_buy_price_each:,} gil @ {hq_buy_world}")
             elif amount > 1:
                 st.write(f"{hq_buy_price_each * amount:,} gil ({hq_buy_price_each:,} gil each @ {hq_buy_world})")
-            st.write(f"Velocity: {hq_buy_velocity:,.0f}/day")
+            st.write(f"Velocity: {hq_buy_velocity:,.2f}/day")
     with result_grid[(row, 1)]:
         with st.container():
             if amount == 1:
-                profit = hq_buy_price_each - craft_cost_each
+                savings = hq_buy_price_each - craft_cost_each
+                savings_perc = savings / hq_buy_price_each
             elif amount > 1:
-                profit = hq_buy_price_total - craft_cost_total
-            # profit_perc = profit / hq_buy_price_each
+                savings = hq_buy_price_total - craft_cost_total
+                savings_perc = savings / craft_cost_each
             st.metric(
             f"Amount saved crafting vs buying HQ",
-            f"{profit:,} gil",
-            # f"{profit_perc:.2%}"
+            f"{savings:,} gil",
+            f"{savings_perc:.2%}"
             )
     
     
@@ -265,20 +267,29 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
         if nq_sell_price_each is None:
             st.write(":red[N/A  \n(No NQ available)]")
         else:
-            st.write(f"{nq_sell_price_each:,} @ {nq_sell_world}")
-            st.write(f"Velocity: {nq_sell_velocity:,.0f}/day")
+            if amount == 1:
+                st.write(f"{nq_sell_price_each:,} gil @ {nq_sell_world}")
+            elif amount > 1:
+                st.write(f"{nq_sell_price_each * amount:,} gil ({nq_sell_price_each:,} gil each @ {nq_sell_world})")
+            st.write(f"Velocity: {nq_sell_velocity:,.2f}/day")
     with result_grid[(row, 1)]:
-        if amount == 1:
-            profit = nq_sell_price_each - craft_cost_each
-            profit_perc = profit / craft_cost_each
-        elif amount > 1:
-            profit = nq_sell_price_total - craft_cost_total
-            profit_perc = profit / craft_cost_total
-        st.metric(
-            f"Profit made by crafting and selling NQ",
-            f"{profit:,} gil",
-            f"{profit_perc:.2%}"
+        if nq_sell_price_each is None:
+            st.metric(
+            f"Profit made by crafting and selling HQ",
+            f"N/A"
             )
+        else:
+            if amount == 1:
+                profit = nq_sell_price_each - craft_cost_each
+                profit_perc = profit / craft_cost_each
+            elif amount > 1:
+                profit = nq_sell_price_total - craft_cost_total
+                profit_perc = profit / craft_cost_total
+            st.metric(
+                f"Profit made by crafting and selling NQ",
+                f"{profit:,} gil",
+                f"{profit_perc:.2%}"
+                )
 
     row = 0
     with result_grid[(row, 0)]:
@@ -286,20 +297,29 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
         if hq_sell_price_each is None:
             st.write(":red[N/A  \n(No HQ available)]")
         else:
-            st.write(f"{hq_sell_price_each:,} @ {hq_sell_world}")
-            st.write(f"Velocity: {hq_sell_velocity:,.0f}/day")
+            if amount == 1:
+                st.write(f"{hq_sell_price_each:,} gil @ {hq_sell_world}")
+            elif amount > 1:
+                st.write(f"{hq_sell_price_each * amount:,} gil ({hq_sell_price_each:,} gil each @ {hq_sell_world})")
+            st.write(f"Velocity: {hq_sell_velocity:,.2f}/day")
     with result_grid[(row, 1)]:
-        if amount == 1:
-            profit = hq_sell_price_each - craft_cost_each
-            profit_perc = profit / craft_cost_each
-        elif amount > 1:
-            profit = hq_sell_price_total - craft_cost_total
-            profit_perc = profit / craft_cost_total
-        st.metric(
+        if hq_sell_price_each is None:
+            st.metric(
             f"Profit made by crafting and selling HQ",
-            f"{profit:,} gil",
-            f"{profit_perc:.2%}"
+            f"N/A"
             )
+        else:
+            if amount == 1:
+                profit = hq_sell_price_each - craft_cost_each
+                profit_perc = profit / craft_cost_each
+            elif amount > 1:
+                profit = hq_sell_price_total - craft_cost_total
+                profit_perc = profit / craft_cost_total
+            st.metric(
+                f"Profit made by crafting and selling HQ",
+                f"{profit:,} gil",
+                f"{profit_perc:.2%}"
+                )
 
 
 
@@ -322,11 +342,11 @@ def print_velocity_warning(velocity: int) -> None:
     if velocity is None:
         return
     elif velocity < 15:
-        st.error(f"&nbsp; Item won't sell: average {velocity:,.0f} sold/day", icon="🔥")
+        st.error(f"&nbsp; Item won't sell: average {velocity:,.2f} sold/day", icon="🔥")
     elif velocity < 99:
-        st.warning(f"&nbsp; Item will sell really slowly: average {velocity:,.0f} sold/day", icon="🚨")
+        st.warning(f"&nbsp; Item will sell really slowly: average {velocity:,.2f} sold/day", icon="🚨")
     else:
-        st.success(f"&nbsp; Item will sell: average {velocity:,.0f} sold/day", icon="🥳")
+        st.success(f"&nbsp; Item will sell: average {velocity:,.2f} sold/day", icon="🥳")
 
 
 @st.fragment
@@ -400,7 +420,7 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
         # Ingredient name column
         with ingr_grid[(row, 0)]:
             if int(id) in results_df["item_id"]:
-                st.markdown(f"![{name}]({icon_url}) {name} ([{id}](/?id={id}))")
+                st.markdown(f"![{name}]({icon_url}) {name} ([{id}](/?dc={st.session_state.dc}&world={st.session_state.world}id={id}))")
             else:
                 st.markdown(f"![{name}]({icon_url}) {name} ({id})")
 
@@ -439,7 +459,7 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
                 )
                 nq_total = nq_price * nq_qty
                 st.write(f"{nq_total:,} gil ({nq_price:,} gil each @ {nq_world})")
-                st.write(f"Velocity: {nq_velocity:,.0f}/day")
+                st.write(f"Velocity: {nq_velocity:,.2f}/day")
                 row_cost += nq_total
         
         # Ingredient market HQ quantity/price column
@@ -457,7 +477,7 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
                 )
                 hq_total = hq_price * hq_qty
                 st.write(f"{hq_total:,} gil ({hq_price:,} gil each @ {hq_world})")
-                st.write(f"Velocity: {hq_velocity:,.0f}/day")
+                st.write(f"Velocity: {hq_velocity:,.2f}/day")
                 row_cost += hq_total
 
         # Ingredient total cost (per ingredient) column
@@ -479,6 +499,7 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
             f"#### Total ingredient cost per craftable amount ({result_amount}): :red[{craft_cost_total:,}]"
         )
     st.write(f"#### Total ingredient cost: :red[{craft_cost_each:,} gil each]")
+
 
     if total_velocity is None:
         with cont_analysis:
