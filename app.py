@@ -1,5 +1,6 @@
 """
 TODO
+- Make thresholds adjustable in UI
 - Add item source, e.g. currency if vendor; SpecialShop.csv; nontrivial effort
 - Add Japanese language support; not sure where source is
 - Support recursive crafts (subcrafts); not sure how to implement
@@ -15,9 +16,9 @@ from dataclasses import dataclass
 ### Configuration variables
 DB_NAME = "ffxiv_price.duckdb"
 home_page = st.Page("app.py", default=True)
-profit_perc_good_threshold = 0.25  # Minimum profit % to show "good profit" message
-velocity_warning_threshold = 20  # Minimum velocity to show "good sell" message
-velocity_good_threshold = 99  # Minimum velocity to show "good sell" message
+default_profit_goal = 25  # Minimum profit % to show "good profit" message
+default_velocity_warning = 15  # Minimum velocity to show "good sell" message
+default_velocity_goal = 40  # Minimum velocity to show "good sell" message
 
 
 @st.cache_resource(show_spinner=False)
@@ -320,7 +321,7 @@ def sell_recommend(profit_perc, sell_velocity):
         st.markdown("### :red[Don't craft to sell!]")
         st.error(f"&nbsp; Unable to calculate profit as no data", icon="🔥")
         return
-    if profit_perc > profit_perc_good_threshold and sell_velocity > velocity_good_threshold:
+    if profit_perc > st.session_state.get("profit_goal") and sell_velocity > st.session_state.get("velocity_goal"):
         st.markdown("### :green[Craft to sell!]")
     else:
         st.markdown("### :red[Don't craft to sell!]")
@@ -329,15 +330,15 @@ def sell_recommend(profit_perc, sell_velocity):
                 f"&nbsp; Crafting to sell will result in a loss: {profit_perc:,.2%}",
                 icon="🔥",
             )
-    elif profit_perc < profit_perc_good_threshold:
-        st.warning(f"&nbsp; Low profit margin (below 25%): {profit_perc:,.2%}", icon="🚨")
+    elif profit_perc < st.session_state.get("profit_goal"):
+        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal")}%): {profit_perc:,.2%}", icon="🚨")
     else:
         st.success(f"&nbsp; Profit above 25%: {profit_perc:,.2%}", icon="🥳")
     if sell_velocity is None:
         return
-    elif sell_velocity < velocity_warning_threshold:
+    elif sell_velocity < default_velocity_warning:
         st.error(f"&nbsp; Item won't sell: average {sell_velocity:,.2f} sold/day", icon="🔥")
-    elif sell_velocity < velocity_good_threshold:
+    elif sell_velocity < st.session_state.get("velocity_goal"):
         st.warning(f"&nbsp; Item will sell slowly: average {sell_velocity:,.2f} sold/day", icon="🚨")
     else:
         st.success(f"&nbsp; Item will sell: average {sell_velocity:,.2f} sold/day", icon="🥳")
@@ -347,7 +348,7 @@ def buy_recommend(profit_perc):
         st.markdown("### :red[Don't craft to use!]")
         st.error(f"&nbsp; Unable to calculate savings as no data", icon="🔥")
         return
-    if profit_perc > profit_perc_good_threshold:
+    if profit_perc > st.session_state.get("profit_goal"):
         st.markdown("### :green[Craft to use!]")
     else:
         st.markdown("### :red[Don't craft to use!]")
@@ -356,8 +357,8 @@ def buy_recommend(profit_perc):
                 f"&nbsp; Crafting to sell will result in a loss: {profit_perc:,.2%}",
                 icon="🔥",
             )
-    elif profit_perc < profit_perc_good_threshold:
-        st.warning(f"&nbsp; Low profit margin (below 25%): {profit_perc:,.2%}", icon="🚨")
+    elif profit_perc < st.session_state.get("profit_goal"):
+        st.warning(f"&nbsp; Low profit margin (below {st.session_state.get("profit_goal")}%): {profit_perc:,.2%}", icon="🚨")
     else:
         st.success(f"&nbsp; Profit above 25%: {profit_perc:,.2%}", icon="🥳")
 
@@ -440,12 +441,12 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
             row_cost += cell_total
         # Ingredient market NQ quantity/price column
         with ingr_grid[(row, 3)]:
-            cell_total = print_ingr_amount_input(id=id, source="nq", amount=amount, price=nq_price, default_value=nq_amount, velocity=nq_velocity)
+            cell_total = print_ingr_amount_input(id=id, source="nq", world=nq_world, amount=amount, price=nq_price, default_value=nq_amount, velocity=nq_velocity)
             row_cost += cell_total
         
         # Ingredient market HQ quantity/price column
         with ingr_grid[(row, 4)]:
-            cell_total = print_ingr_amount_input(id=id, source="hq", amount=amount, price=hq_price, default_value=hq_amount, velocity=hq_velocity)
+            cell_total = print_ingr_amount_input(id=id, source="hq", world=hq_world, amount=amount, price=hq_price, default_value=hq_amount, velocity=hq_velocity)
             row_cost += cell_total
 
         # Ingredient total cost (per ingredient) column
@@ -482,7 +483,7 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
 
     return
 
-def print_ingr_amount_input(id: int, source: str, amount: int, price: int, default_value: int, velocity: float =0) -> int:
+def print_ingr_amount_input(id: int, source: str,  amount: int, price: int, default_value: int, velocity: float =0, world: str|None = None) -> int:
     if price is None:
         match source:
             case "shop":
@@ -502,7 +503,10 @@ def print_ingr_amount_input(id: int, source: str, amount: int, price: int, defau
                     label_visibility="hidden",
                 )
         cost = price * shop_qty
-        st.write(f"{format_gil(cost)} ({format_gil(price)}) each)")
+        if source == "shop":
+            st.write(f"{format_gil(cost)} ({format_gil(price)} each)")
+        else:
+            st.write(f"{format_gil(cost)} ({format_gil(price)} each @ {world})")
         if source != "shop":
             st.write(format_velocity(velocity))
         return cost
@@ -603,17 +607,20 @@ if __name__ == "__main__":
                 index = None
             return index
 
-        world_selectbox = st.selectbox(
-            "Select world where selling items (optional)", world_list, index=world_selectbox_index(),
-            help="Will calculate based on cheapest prices in datacentre if not selected", width=200)
+        with st.container():
+            world_selectbox = st.selectbox(
+                "Select world where selling items (optional)", world_list, index=world_selectbox_index(),
+                help="Will calculate based on cheapest prices in datacentre if not selected", width=200)
 
-        if st.session_state.world is None:
-            st.session_state.same_world_buy = False
-        else:
-            st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
+            if st.session_state.world is None:
+                st.session_state.same_world_buy = False
+            else:
+                st.checkbox("Buy ingredients on same world (no world travel)", value=False, key="same_world_buy")
+            st.space("stretch")
+        st.checkbox("Only craft NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts. Check this if you are bulk crafting NQ items instead.", key="nq_craft")
 
-        st.checkbox("Only craft against NQ items", value=False, help="Default setting assume crafters will always aim for HQ crafts", key="nq_craft")
-
+        st.number_input("Low profit % warning threshold", min_value=0, value=int(default_profit_goal), key ="profit_goal", help="Set this to determine what threshold low profit will flag at")
+        st.number_input("Low velocity warning threshold", min_value=0, value=int(default_velocity_goal), key ="velocity_goal", help="Set this to determine what threshold low velocity will flag at")
         sync_params_and_redirect()
 
         
