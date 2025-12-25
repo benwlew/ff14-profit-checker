@@ -12,12 +12,13 @@ import polars as pl
 import streamlit as st
 import time
 
+### Configuration variables
 DB_NAME = "ffxiv_price.duckdb"
 home_page = st.Page("app.py", default=True)
-
 profit_perc_good_threshold = 0.25  # Minimum profit % to show "good profit" message
 velocity_warning_threshold = 20  # Minimum velocity to show "good sell" message
 velocity_good_threshold = 99  # Minimum velocity to show "good sell" message
+
 
 @st.cache_resource(show_spinner=False)
 def get_worlds_dc() -> pl.DataFrame:
@@ -26,6 +27,7 @@ def get_worlds_dc() -> pl.DataFrame:
         query = """SELECT * from  world_dc"""
         df = con.sql(query).pl()
     return df
+
 
 @st.cache_resource(show_spinner=False)
 def get_all_recipes() -> pl.DataFrame:
@@ -167,27 +169,13 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     st.space(size="small")
 
     # Create grid for data
-    result_grid = {}
-    for x in range(4):
-        y = st.columns(3, border=True, gap=None)
-        for y, col in enumerate(y):
-            coord = (x, y)
-            tile = col.container()
-            result_grid[coord] = tile
+    result_grid = create_grid(4, 3)
 
- 
 
     row = 0
     with result_grid[(row, 0)]:
-        st.markdown("#### HQ Sell Price")
-        if hq_sell_price_each is None:
-            st.write(":red[N/A  \n(No HQ available)]")
-        else:
-            if amount == 1:
-                st.write(f"{hq_sell_price_each:,} gil @ {hq_sell_world}")
-            elif amount > 1:
-                st.write(f"{hq_sell_price_each * amount:,} gil ({hq_sell_price_each:,} gil each @ {hq_sell_world})")
-            st.write(f"Velocity: {hq_sell_velocity:,.2f}/day")
+        print_result_price(title="HQ Sell Price", type="HQ", amount=amount, 
+                         price=hq_sell_price_each, velocity=hq_sell_velocity, world=hq_sell_world)
     with result_grid[(row, 1)]:
         if hq_sell_price_each is None:
             st.metric(
@@ -213,18 +201,9 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     row = 1
 
     with result_grid[(row, 0)]:
-        # if cheapest_buy_source == "hq_price":
-        #     st.markdown("#### :green[HQ Buy Price]")
-        # else:
-        st.markdown("#### HQ Buy Price")
-        if hq_buy_price_each is None:
-            st.write(":red[N/A  \n(No HQ available)]")
-        else:
-            if amount == 1:
-                st.write(f"{hq_buy_price_each:,} gil @ {hq_buy_world}")
-            elif amount > 1:
-                st.write(f"{hq_buy_price_each * amount:,} gil ({hq_buy_price_each:,} gil each @ {hq_buy_world})")
-            st.write(f"Velocity: {hq_buy_velocity:,.2f}/day")
+        print_result_price(title="HQ Buy Price", type="HQ", amount=amount, 
+                         price=hq_buy_price_each, velocity=hq_buy_velocity, world=hq_buy_world)
+
     with result_grid[(row, 1)]:
         with st.container():
             if amount == 1:
@@ -244,65 +223,68 @@ def print_result(buy_result_df: pl.DataFrame, sell_result_df: pl.DataFrame, craf
     
     row = 2
     with result_grid[(row, 0)]:
-        st.markdown("#### NQ Sell Price")
-        if nq_sell_price_each is None:
-            st.write(":red[N/A  \n(No NQ available)]")
-        else:
-            if amount == 1:
-                st.write(f"{nq_sell_price_each:,} gil @ {nq_sell_world}")
-            elif amount > 1:
-                st.write(f"{nq_sell_price_each * amount:,} gil ({nq_sell_price_each:,} gil each @ {nq_sell_world})")
-            st.write(f"Velocity: {nq_sell_velocity:,.2f}/day")
+        print_result_price(title="NQ Sell Price", type="NQ", amount=amount, 
+                    price=nq_sell_price_each, velocity=nq_sell_velocity, world=nq_sell_world)
+
     with result_grid[(row, 1)]:
-        if nq_sell_price_each is None:
-            st.metric(
-            f"Profit made by crafting and selling HQ",
-            f"N/A"
-            )
-        else:
-            if amount == 1:
-                profit = nq_sell_price_each - craft_cost_each
-                profit_perc = profit / craft_cost_each
-            elif amount > 1:
-                profit = nq_sell_price_total - craft_cost_total
-                profit_perc = profit / craft_cost_total
-            st.metric(
-                f"Profit made by crafting and selling NQ",
-                f"{profit:,} gil",
-                f"{profit_perc:.2%}"
-                )
+        profit_perc = print_result_metric(title = "Profit made by crafting and selling NQ", craft_cost_total=craft_cost_total, amount=amount,
+                                          price_each=nq_sell_price_each)
     with result_grid[(row, 2)]:
         sell_recommend(nq_sell_velocity, profit_perc)
 
     row = 3
     with result_grid[(row, 0)]:
-        # if cheapest_buy_source == "nq_price":
-        #     st.markdown("#### :green[NQ Buy Price]")
-        # else:
-        st.markdown("#### NQ Buy Price")
-        if nq_buy_price_each is None:
-            st.write(":red[N/A  \n(No NQ available)]")
-        else:
-            if amount == 1:
-                st.write(f"{nq_buy_price_each:,} gil @ {nq_buy_world}")
-            elif amount > 1:
-                st.write(f"{nq_buy_price_each * amount:,} gil ({nq_buy_price_each:,} gil each @ {nq_buy_world})")
-            st.write(f"Velocity: {nq_buy_velocity:,.2f}/day")
+        print_result_price(title="NQ Buy Price", type="NQ", amount=amount, 
+                    price=nq_buy_price_each, velocity=nq_buy_velocity, world=nq_buy_world)
     with result_grid[(row, 1)]:
         with st.container():
-            if amount == 1:
-                savings = nq_buy_price_each - craft_cost_each
-                savings_perc = savings / nq_buy_price_each
-            elif amount > 1:
-                savings = nq_buy_price_total - craft_cost_total
-                savings_perc = savings / craft_cost_each
-            st.metric(
-            f"Amount saved crafting vs buying NQ",
-            f"{savings:,} gil",
-            f"{savings_perc:.2%}"
-            )
+            profit_perc = print_result_metric(title = "Amount saved crafting vs buying NQ", craft_cost_total=craft_cost_total, amount=amount,
+                price_each=nq_buy_price_each)
     with result_grid[(row, 2)]:
         buy_recommend(savings_perc)
+
+def create_grid(rows,cols) -> dict:
+    result_grid = {}
+    for x in range(rows):
+        y = st.columns(cols, border=True, gap=None)
+        for y, col in enumerate(y):
+            coord = (x, y)
+            tile = col.container()
+            result_grid[coord] = tile
+    return result_grid
+
+def print_result_metric(title, craft_cost_total: int, amount: int, price_each: int) -> int:
+    price_total = price_each * amount
+    craft_cost_each = int(craft_cost_total / amount)
+    if price_each is None:
+        st.metric(
+            f"{title}",
+            f"N/A"
+            )
+    else:
+        if amount == 1:
+            profit = price_each - craft_cost_each
+            profit_perc = profit / craft_cost_each
+        elif amount > 1:
+            profit = nq_sell_price_total - craft_cost_total
+            profit_perc = profit / craft_cost_total
+        st.metric(
+                f"{title}",
+                f"{profit:,} gil",
+                f"{profit_perc:.2%}"
+                )
+    return profit_perc
+
+def print_result_price(title, type, amount, price, velocity, world):
+    st.markdown(f"#### {title}")
+    if price is None:
+        st.write(":red[N/A  \n(No {type} available)]")
+    else:
+        if amount == 1:
+            st.write(f"{price:,} gil @ {world}")
+        elif amount > 1:
+            st.write(f"{price * amount:,} gil ({price:,} gil each @ {world})")
+        st.write(f"Velocity: {velocity:,.2f}/day")
 
 def sell_recommend(sell_velocity, profit_perc):
     if profit_perc > profit_perc_good_threshold and sell_velocity > velocity_good_threshold:
@@ -342,20 +324,6 @@ def buy_recommend(profit_perc):
     else:
         st.success(f"&nbsp; Profit above 25%: {profit_perc:,.2%}", icon="🥳")
 
-
-@st.fragment
-def print_velocity_warning(velocity: int) -> None:
-    ## Display advice based on velocity
-    if velocity is None:
-        return
-    elif velocity < 15:
-        st.error(f"&nbsp; Item won't sell: average {velocity:,.2f} sold/day", icon="🔥")
-    elif velocity < 99:
-        st.warning(f"&nbsp; Item will sell really slowly: average {velocity:,.2f} sold/day", icon="🚨")
-    else:
-        st.success(f"&nbsp; Item will sell: average {velocity:,.2f} sold/day", icon="🥳")
-
-
 @st.fragment
 def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
     ## List ingredient data in a grid for clarity
@@ -375,13 +343,7 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
     st.space(size="small")
 
     ### Create blank grid for items
-    ingr_grid = {}
-    for x in range(len(buy_ingr_df) + 1):
-        y = st.columns(6, border=True, gap=None)
-        for y, col in enumerate(y):
-            coord = (x, y)
-            tile = col.container()
-            ingr_grid[coord] = tile
+    ingr_grid = create_grid(len(buy_ingr_df) + 1, 6)
 
     
     # Populate grid header row with column names
@@ -518,8 +480,6 @@ def print_ingredients(buy_price_df: pl.DataFrame, sell_price_df: pl.DataFrame):
         # Display summary of calculations at top of page
         with cont_result:
             print_result(buy_result_df, sell_result_df, craft_cost_total)
-        with cont_velocity_warning:
-            print_velocity_warning(total_velocity)
 
     return
 
